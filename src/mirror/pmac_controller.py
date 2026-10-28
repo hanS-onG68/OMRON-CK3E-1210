@@ -14,6 +14,7 @@ class SSH_Config:
     port:int        = 22
     username:str    = "root"
     password:str    = "deltatau"
+    connect_timeout:float  = 10
 
 
 class PMAC_Controller:

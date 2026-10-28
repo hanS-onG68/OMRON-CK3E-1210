@@ -68,7 +68,7 @@ class MirrorsController:
         self.motors_status = np.full((MIRRORS_COUNT, ACTUATORS_PER_MIRROR), True, dtype=bool)  # 该位置电机是否正常: true表示正常，false表示异常(默认都正常)
         
         # 调试时选择：
-        self.Available[1, :] = True    # 选择几号边缘子镜
+        self.Available[2, :] = True    # 选择几号边缘子镜
 
 
         # 映射索引
@@ -247,7 +247,7 @@ class MirrorsController:
         tasks = []
         for ctrl_id, cmd in commands.items():
             tasks.append(asyncio.create_task(self.Controllers[ctrl_id].exec_command(cmd)))
-        await asyncio.wait_for(asyncio.gather(*tasks), timeout=5)
+        await asyncio.wait_for(asyncio.gather(*tasks), timeout=15)
 
     async def check_motors_status(self, now_ts, cmds):
         self._cmds_history.append((now_ts, cmds, self.Steps.copy()))     # 记录当前时间戳和是否有命令
