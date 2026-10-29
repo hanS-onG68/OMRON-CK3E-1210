@@ -1,0 +1,21 @@
+# 虚拟环境
+.venv_*/
+venv/
+.venv*/
+
+# Python 缓存
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# 日志与数据
+
+# 嵌套的 git 仓库 / 备份目录
+ocs/OCS_BAK/
+
+# 编辑器
+.vscode/
+.idea/
