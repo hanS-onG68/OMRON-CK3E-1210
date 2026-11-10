@@ -8,7 +8,7 @@ from typing import Optional, List
 from mirror.pmac_controller import PMAC_Controller, SSH_Config
 import csv
 from mirror.sensor_KP.plot import DataAnalyzer
-from mirror.logger import setup_logger
+from mirror.color_logger import setup_logger
 import signal
 import aiofiles
 from dataclasses import dataclass

@@ -25,7 +25,7 @@ class HexagonSensorVisualizer(QMainWindow):
         self.close_future = None  # 用于在窗口关闭时触发的Future对象
         
         # 几何参数：对边距离2米
-        self.flat_to_flat = 3.0                             # 对边距离
+        self.flat_to_flat = 1                          # 对边距离
         self.side_length = self.flat_to_flat / np.sqrt(3)   # 边长 ≈ 1.1547米
         
         self.hexagon_centers = self.calculate_hexagon_centers()            # 各个子镜的中心位置（x,y) - 蜂巢紧密排列
@@ -83,8 +83,6 @@ class HexagonSensorVisualizer(QMainWindow):
 
     async def monitor_task(self):
         # 后台开启传感器数据处理流程
-        # asyncio.create_task(self.mirror.run())
-        # asyncio.create_task(self.update_scatter())
         try:
             await asyncio.gather(
                 self.mirror.run(),
@@ -124,10 +122,9 @@ class HexagonSensorVisualizer(QMainWindow):
         angles = np.linspace(0, 2*np.pi, 13)[:-1]  # 12个等分角度=2π/12=30°：0、30、60、90、120、150、180、210、240、270、300、330
         
         # 传感器到六边形中心的距离（内圈和外圈）
-        inner_radius = self.side_length * 0.55  # 内圈半径
+        inner_radius = self.side_length * 0.46  # 内圈半径
         outer_radius = self.side_length * 0.75  # 外圈半径 0.75
         
-        # 只计算周围6个子镜的传感器（中心镜不部署传感器）
         # 只计算周围6个子镜的传感器（中心镜不部署传感器）
         for center_idx, (cx, cy) in enumerate(centers):
             if center_idx == 0:  # 跳过中心镜（镜1）
@@ -178,7 +175,6 @@ class HexagonSensorVisualizer(QMainWindow):
         main_layout.addWidget(control_panel, 1)
         
         # 设置控制面板固定宽度
-        #control_panel.setFixedWidth(380)
         control_panel.setMinimumWidth(200)   # 保证不被压得太窄
         control_panel.setMaximumWidth(300)   # 可选：防止过宽
         
@@ -188,15 +184,16 @@ class HexagonSensorVisualizer(QMainWindow):
         plot_widget.setBackground('#0f0f0f')
         
         # 创建主绘图区域
-        self.main_plot = plot_widget.addPlot(title="传感器分布图", row=0, col=0)
+        self.main_plot = plot_widget.addPlot(row=0, col=0)
         self.main_plot.setAspectLocked(True)
-        # self.main_plot.showGrid(x=True, y=True, alpha=0.3)
-        self.main_plot.setLabel('left', 'Y坐标 (米)')
-        self.main_plot.setLabel('bottom', 'X坐标 (米)')
+        # self.main_plot.setLabel('left', 'Y坐标 (米)')
+        # self.main_plot.setLabel('bottom', 'X坐标 (米)')
         
         # 设置视图范围
-        self.main_plot.setXRange(-3.0, 3.0)
-        self.main_plot.setYRange(-3.0, 3.0)
+        # self.main_plot.setXRange(-3.0, 3.0)
+        # self.main_plot.setYRange(-3.0, 3.0)
+        self.main_plot.hideAxis('left')    # 隐藏左侧Y轴标尺
+        self.main_plot.hideAxis('bottom')  # 隐藏下方X轴标尺
         
         # 绘制六边形网格
         self.draw_hexagon_grid()
@@ -204,19 +201,27 @@ class HexagonSensorVisualizer(QMainWindow):
         # 创建散点图项（传感器点） # 性能优化：预创建散点图项对象池
         self.scatter_plot = pg.ScatterPlotItem(
             pos=self.sensor_positions.reshape(-1, 2),  # 将二维数组展平为N x 2的形状
-            size=25,
-            pen=pg.mkPen('#ffffff', width=2.5),
+            size=16,
+            pen=pg.mkPen('#ffffff', width=1.5),
+            # pen=pg.mkPen(None),
             brush=pg.mkBrush(255, 255, 255, 180),
-            pxMode=True
+            # symbol='s',  # 方形
+            pxMode=True # False：size 的单位是图表数据坐标。当你放大图表时，点会跟着变得巨大；缩小时点会变小。
         )
         # 创建散点图项（电机是否故障） # 性能优化：预创建散点图项对象池
         self.scatter_plot_motor_status = pg.ScatterPlotItem(
             pos=self.sensor_positions.reshape(-1, 2),  # 将二维数组展平为N x 2的形状
-            size=10,
-            pen=pg.mkPen(None),  # 无边框
+            size=12,
+            # pen=pg.mkPen(None),  # 无边框
+            pen=pg.mkPen('#333333', width=.5),
             brush=pg.mkBrush(0, 255, 0),  # 填充绿色
-            pxMode=True
+            # offset=(20000, 0),  # ★ 黑科技：整个散点图向右平移 18 个屏幕像素
+            # symbol='s'
+            pxMode=True # true:size 的单位是屏幕像素。不管你怎么放大缩小图表，这个绿点的大小在屏幕上永远不变。
         )
+        # transform = QTransform()
+        # transform.translate(0.05, 0) 
+        # self.scatter_plot_motor_status.setTransform(transform)
         self.main_plot.addItem(self.scatter_plot)
         self.main_plot.addItem(self.scatter_plot_motor_status)
         
@@ -274,13 +279,12 @@ class HexagonSensorVisualizer(QMainWindow):
             if idx == 0:
                 # 绘制圆形
                 angles = np.linspace(0, 2*np.pi, 100)
-                circle_x = cx + 0.5 * np.cos(angles)
-                circle_y = cy + 0.5 * np.sin(angles)
+                circle_x = cx + 0.3 * np.cos(angles)
+                circle_y = cy + 0.3 * np.sin(angles)
                 
                 circle = pg.PlotDataItem(
                     circle_x, circle_y,
                     pen=pg.mkPen('#cccccc', width=2, style=Qt.SolidLine),
-                    #pen=pg.mkPen('#4CAF50', width=2, style=Qt.SolidLine),
                     connect='all'
                 )
                 self.main_plot.addItem(circle)
@@ -289,7 +293,7 @@ class HexagonSensorVisualizer(QMainWindow):
                 # 添加圆形中心标签
                 circle_text = pg.TextItem(f"子镜{idx}", color='#ffaa00', anchor=(0.5, 0.5))
                 circle_text.setPos(cx, cy)
-                circle_text.setFont(QFont('Arial', 14))
+                circle_text.setFont(QFont('Arial', 12))
                 self.main_plot.addItem(circle_text)
                 self.hexagon_items.append(circle_text)
                 continue  # 跳过中心镜的六边形绘制
@@ -308,8 +312,8 @@ class HexagonSensorVisualizer(QMainWindow):
             
             # 添加六边形中心标签
             text = pg.TextItem(f"子镜{idx}", color='#4CAF50', anchor=(0.5, 1.5))
-            text.setPos(cx, cy)
-            text.setFont(QFont('Arial', 15))
+            text.setPos(cx, cy+0.01)
+            text.setFont(QFont('Arial', 12))
             self.main_plot.addItem(text)
             self.hexagon_items.append(text)
     
@@ -582,61 +586,53 @@ class HexagonSensorVisualizer(QMainWindow):
                 self.mir_enabled[mir_idx] = self.mir_check[mir_idx].isChecked()
                 self.visible_mask[mir_idx] = self.mir_enabled[mir_idx]
 
-
     def initialize_scatter_textItem(self):
         """初始化传感器数值文本项"""
         self.current_text_items = np.empty((self.mirror_count, self.actuators_per_mirror), dtype=object)  # 用于显示传感器数值的文本项
         self.current_change_val_text_items = np.empty((self.mirror_count, self.actuators_per_mirror), dtype=object)  # 用于显示差值的文本项
+        self.current_motor_id_text_items = np.empty((self.mirror_count, self.actuators_per_mirror), dtype=object)  # 用于显示电机编号的文本项
         sensor_positions = self.sensor_positions.reshape(-1, 2)  # 展平为150 x 2的形状
         for idx, (x, y) in enumerate(sensor_positions):
             i, j = idx // self.actuators_per_mirror, idx % self.actuators_per_mirror   # i表示镜子id, j表示传感器相对该子镜的编号, i*25+j就是传感器的物理位置，对应文件setting/Actuator_Mapping.csv中的actuator_id
-            value = self.sensor_data[i, j]
             point = self.scatter_plot.points()[idx]
             motor_status_point_data = self.scatter_plot_motor_status.data
-            motor_status_point_data['x'][idx] = x + 0.06
-            # motor_status_point_data['y'][idx] = y - 0.10
-            if idx%25%2:  # 外圈点用方形，内圈点用圆形
-                point.setSymbol('s')
-            text = pg.TextItem(f"{value:.1f}", anchor=(0.5, 0.5))
-            text.setPos(x, y - 0.10)
+            motor_status_point_data['x'][idx] = x + 0.05
+            # if idx%25%2:  # 外圈点用方形，内圈点用圆形
+            #     point.setSymbol('s')
+            value = self.sensor_data[i, j]  # 获取对应的传感器数值
+            text = pg.TextItem(f"{value:.1f}", anchor=(0.5, 0))
+            text.setPos(x, y-0.02)
             text.setColor('#ffffff')
-            text.setFont(QFont('Arial', 14))
+            text.setFont(QFont('Arial', 8, QFont.Bold))
 
-            change_val = self.change_val[i,j]
-            text_change_val = pg.TextItem(f"△={change_val:.1f}", anchor=(0.5, 0.5))
-            text_change_val.setPos(x, y+0.08)
+            motor_id = self.mirror._axis_idx[i, j]  # 获取对应的电机编号
+            text_motor_id = pg.TextItem(f"{motor_id}", anchor=(0.5, 0.5))
+            text_motor_id.setPos(x+0.05, y)
+            text_motor_id.setColor('#000000')
+            text_motor_id.setFont(QFont('Arial', 7, QFont.Bold))
+
+            change_val = self.change_val[i,j]  # 获取对应的差值
+            text_change_val = pg.TextItem(f"△={change_val:.1f}", anchor=(0.5, 1))
+            text_change_val.setPos(x, y+0.02)
             text_change_val.setColor('#ffffff')
-            text_change_val.setFont(QFont('Arial', 8))
+            text_change_val.setFont(QFont('Arial', 7.5, QFont.Bold))
 
-            phy_id = Actuator2Pon_Map[i+1][j]  # 促动器编号从1开始显示
+            phy_id = Actuator2Pon_Map[i+1][j]  # 促动器编号(从1开始显示)
             pos_flag = pg.TextItem(f"{phy_id}", anchor=(0.5, 0.5))
             pos_flag.setPos(x, y)
             pos_flag.setColor('#ffff00')
-            pos_flag.setFont(QFont('Arial', 10))
+            pos_flag.setFont(QFont('Arial', 7, QFont.Bold))
 
             self.main_plot.addItem(pos_flag)
             self.main_plot.addItem(text)
             self.main_plot.addItem(text_change_val)
+            self.main_plot.addItem(text_motor_id)
 
             self.current_text_items[i, j] = text
             self.current_change_val_text_items[i, j] = text_change_val
+            self.current_motor_id_text_items[i, j] = text_motor_id
         self.scatter_plot.update()
         self.scatter_plot_motor_status.update()
-    
-    async def update_mirror_visibility(self):
-        while True:
-            for mirror_idx in range(self.mirror_count):
-                mirror_enabled = getattr(self, f'mir{mirror_idx+1}_enabled', False)
-                for j in range(self.actuators_per_mirror):
-                    point = self.scatter_plot.points()[mirror_idx * self.actuators_per_mirror + j]
-                    text_item = self.current_text_items[mirror_idx, j]
-                    if mirror_enabled:
-                        point.setVisible(True)
-                        text_item.setVisible(True)
-                    else:
-                        point.setVisible(False)
-                        text_item.setVisible(False)
-            await asyncio.sleep(0.5)  # 每0.5秒检查一次
     
     async def update_scatter(self):
         while True:
@@ -648,7 +644,7 @@ class HexagonSensorVisualizer(QMainWindow):
             self.motor_status = self.mirror.motors_status
             self.change_val = self.mirror.change_va
             for (i, j), text_item in np.ndenumerate(self.current_text_items):
-                if not self.visible_mask[i, 0]:   # 当前的子镜是否可见
+                if not self.visible_mask[i, 0]:   # 子镜不可见
                     [item.setVisible(False) for item in self.current_text_items[i, :]]  # 隐藏该子镜的所有传感器文本项
                     [item.setVisible(False) for item in self.current_change_val_text_items[i, :]]  # 隐藏该子镜的所有传感器文本项
                     continue
@@ -656,7 +652,9 @@ class HexagonSensorVisualizer(QMainWindow):
                 text_item.setText(f"{value:.2f}")
                 change_val = self.change_val[i, j]
                 change_val_text = self.current_change_val_text_items[i, j]
-                change_val_text.setText(f"△={change_val:.2f}")
+                change_val_text.setText(f"△={change_val:.1f}")
+                motor_id_text = self.current_motor_id_text_items[i, j]
+                motor_id_text.setColor('#000000' if self.motor_status[i,j] else '#ffffff')  # 电机状态：绿色正常，红色故障
 
                 if np.isnan(value):
                     color = QColor(128, 128, 128)  # 灰色
@@ -671,6 +669,7 @@ class HexagonSensorVisualizer(QMainWindow):
                 motor_status_point = self.scatter_plot_motor_status.points()[i * self.actuators_per_mirror + j]
                 motor_color = QColor(0, 255, 0) if self.motor_status[i,j]  else QColor(255, 0, 0) # 红色(255,0,0): 故障， 绿色：正常
                 motor_status_point.setBrush(motor_color)
+                # motor_status_point.setData(offset=(18, 0))
                 
                 visible = not (self.filter_enabled and value < self.threshold)
                 point.setVisible(visible)  # visible 为 True 时，该数据点会在界面上正常显示
@@ -913,6 +912,8 @@ def palette_set():
 
 if __name__ == "__main__":
     try:
+        import os
+        os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"  #  告诉 Qt 启用自动缩放（必须在创建 QApplication 之前设置）
         from qasync import QEventLoop, asyncSlot
         # ★★★ 在创建 QApplication 之前设置 ★★★
         QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)

@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
 from scipy.stats import pearsonr, spearmanr, linregress
-from mirror.logger import setup_logger
+from mirror.color_logger import setup_logger
 from typing import Optional, List
 import re
 

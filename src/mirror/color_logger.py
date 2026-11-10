@@ -3,24 +3,27 @@ import logging
 # 全局标记：保证日志只初始化一次，避免重复添加Handler
 _logger_initialized = False
 
-# ANSI颜色代码
-COLOR_CODES = {
-    "DEBUG": "\033[94m",    # 蓝色
-    "INFO": "\033[92m",     # 绿色
-    "WARNING": "\033[93m",  # 黄色
-    "ERROR": "\033[91m",    # 红色
-    "CRITICAL": "\033[95m", # 紫色
-    "RESET": "\033[0m"      # 重置颜色
-}
 
 class ColoredFormatter(logging.Formatter):
     """为不同日志级别添加颜色的格式化器"""
+    # ANSI颜色代码
+    COLOR_CODES = {
+        "DEBUG": "\033[94m",    # 蓝色
+        "INFO": "\033[92m",     # 绿色
+        "WARNING": "\033[93m",  # 黄色
+        "ERROR": "\033[91m",    # 红色
+        "CRITICAL": "\033[95m", # 紫色
+        "RESET": "\033[0m"      # 重置颜色
+    }
+    def __init__(self, fmt=None, datefmt=None):
+        super().__init__(fmt, datefmt)
+    
     def format(self, record):
         # 获取原始日志消息
         message = super().format(record)
         # 根据日志级别添加颜色
-        color = COLOR_CODES.get(record.levelname, COLOR_CODES["RESET"])
-        return f"{color}{message}{COLOR_CODES['RESET']}"
+        color = self.COLOR_CODES.get(record.levelname, self.COLOR_CODES["RESET"])
+        return f"{color}{message}{self.COLOR_CODES['RESET']}"
 
 # 配置日志记录器
 def setup_logger():
@@ -50,6 +53,9 @@ def setup_logger():
     
     # 将处理器添加到记录器
     logger.addHandler(console_handler)
+
+
+    
     return logger
 
 # 使用示例

@@ -1,20 +1,14 @@
 from pymodbus.client import AsyncModbusTcpClient
 from pymodbus.exceptions import ModbusException
-import struct
-import logging
 import atexit
-import psutil
 from datetime import datetime
 import subprocess
 from typing import Optional, Dict
 import asyncio
-# from pymodbus import Endian
 from pymodbus.constants import Endian
-# from pymodbus import FramerType
 from pymodbus.payload import BinaryPayloadDecoder
 
-from mirror.logger import setup_logger
-logger = setup_logger()
+from mirror.ocs_utils import get_ocs_logger
 
 
 class Amplifier:  # 国产放大器
@@ -26,6 +20,7 @@ class Amplifier:  # 国产放大器
         self.timeout = timeout
         self.retries = retries
         self.slave_id = slave_id
+        self.logger = get_ocs_logger(f"Amplifier_{self.host}")  # 每个设备一个独立的logger实例
 
     async def connect(self) -> None:
         """异步建立Modbus TCP连接"""
@@ -45,14 +40,16 @@ class Amplifier:  # 国产放大器
         connected = await self.client.connect()
         
         if not connected:
+            self.logger.error(f"无法连接设备 {self.host}:{self.port}，请检查网络/配置")
+            self.client.close()
             raise ConnectionError(f"无法连接设备 {self.host}:{self.port}，请检查网络/配置")
-        logger.info(f"已成功连接设备 {self.host}:{self.port}")
+        self.logger.info(f"已成功连接设备 {self.host}:{self.port}")
 
     async def disconnect(self) -> None:
         """异步断开连接释放资源"""
         if self.client and self.client.connected:
             self.client.close()
-            logger.info(f"设备_{self.host} 连接已关闭")
+            self.logger.info(f"设备_{self.host} 连接已关闭")
 
     async def get_val_by_channel(self, index: int, reg_pair: list, results: Dict[str, float]) -> None:
         decoder = BinaryPayloadDecoder.fromRegisters(
@@ -62,7 +59,7 @@ class Amplifier:  # 国产放大器
         )
         val = decoder.decode_32bit_float()
         channel = int(index / 2 + 1)
-        logger.info(f"通道{channel}测量值: {val:.4f}")
+        self.logger.info(f"通道{channel}测量值: {val:.4f}")
         results[f"channel_{channel}"] = val
 
     async def read_channels_measure(self):
@@ -72,7 +69,7 @@ class Amplifier:  # 国产放大器
             返回值: 成功返回测量值字典, 失败返回None
         """
         if not self.client or not self.client.connected:
-            logger.error("尚未连接设备, 请先调用connect()")
+            self.logger.error("尚未连接设备, 请先调用connect()")
             return None
 
         start_addr = 1  # 通道1的寄存器起始地址：1+（n-1）*2
@@ -85,10 +82,10 @@ class Amplifier:  # 国产放大器
                 slave=self.slave_id  # 通讯地址默认为01
             )
             if response.isError():
-                logger.error(f"读取失败: {response}")
+                self.logger.error(f"读取失败: {response}")
                 return None
 
-            # logger.info(f"response = {response}, response.registers: {response.registers}, len = {len(response.registers)}")
+            # self.logger.info(f"response = {response}, response.registers: {response.registers}, len = {len(response.registers)}")
             try:
                 results = {}
                 for index in range(0, len(response.registers), 2):
@@ -96,17 +93,17 @@ class Amplifier:  # 国产放大器
                     decoder = BinaryPayloadDecoder.fromRegisters(reg_pair, byteorder=Endian.BIG, wordorder=Endian.BIG)
                     val = decoder.decode_32bit_float()
                     channel = int(index / 2 + 1)
-                    logger.info(f"{self.host}--通道{channel}测量值: {val:.4f}")
+                    self.logger.info(f"{self.host}--通道{channel}测量值: {val:.4f}")
                     results[f"channel_{channel}"] = val
                 return results
             except Exception as e:
-                logger.error(f"数据解析异常: {str(e)}", exc_info=True)
+                self.logger.error(f"数据解析异常: {str(e)}", exc_info=True)
                 return None
         except ModbusException as e:
-                logger.error(f"Modbus协议错误: {str(e)}")
+                self.logger.error(f"Modbus协议错误: {str(e)}")
                 return None
         except Exception as e:
-                logger.error(f"未知错误: {str(e)}", exc_info=True)
+                self.logger.error(f"未知错误: {str(e)}", exc_info=True)
                 return None     
     
     # 上层调用接口，获取设备8个通道的测量值
@@ -114,7 +111,7 @@ class Amplifier:  # 国产放大器
         val = await self.read_channels_measure()
         values = []
         if val is not None:
-            # logger.info(f"[{self.host}] 当前测量值: {val}")
+            # self.logger.info(f"[{self.host}] 当前测量值: {val}")
             values.append(val["channel_1"])
             values.append(val["channel_2"])
             values.append(val["channel_3"])
@@ -125,10 +122,10 @@ class Amplifier:  # 国产放大器
             values.append(val["channel_8"])
             timestamp = datetime.now()
             result = (self.host, timestamp, values)
-            # logger.info(f"host:{self.host}, fetch data: {result}")
+            # self.logger.info(f"host:{self.host}, fetch data: {result}")
             return result
         else:
-            logger.error("获取测量值失败, 返回None")
+            self.logger.error("获取测量值失败, 返回None")
             return (self.host,  datetime.now(), values)
 
 
@@ -161,7 +158,7 @@ class Amplifier:  # 国产放大器
     
         if self.client and self.client.connected:
             self.client.close()
-            logger.info(f"设备_{self.host} 连接已关闭")
+            self.logger.info(f"设备_{self.host} 连接已关闭")
         self.stop_event.set()  # 停止循环
 
 

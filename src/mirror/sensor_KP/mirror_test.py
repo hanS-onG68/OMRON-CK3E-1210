@@ -8,7 +8,7 @@ from mirror.amplifier.domestic_amplifier import Amplifier as DomesticAmplifier
 from mirror.amplifier.imported_amplifier import Amplifier as ImportedAmplifier
 from mirror.pmac_controller import PMAC_Controller, SSH_Config
 import csv
-from mirror.logger import setup_logger
+from mirror.color_logger import setup_logger
 import signal
 import aiofiles
 from dataclasses import dataclass
@@ -102,7 +102,11 @@ class MirrorsTest:
     async def get_sensor_reader(self, amp_ip: str):
         if self.is_domestic:
             sensor_reader = DomesticAmplifier(amp_ip)      # 国产放大器
-            await sensor_reader.connect()
+            try:
+                await sensor_reader.connect()
+            except Exception as e:
+                self.logger.error(f"无法连接国产放大器 {amp_ip}: {str(e)}")
+                return None
             return sensor_reader
         sensor_reader = ImportedAmplifier(amp_ip, 3, 1.0)   # 进口放大器
         return sensor_reader
@@ -152,7 +156,12 @@ class MirrorsTest:
                 self.logger.error(f"❌ 电机{motor_test.motor_id}测试失败: {str(e)}，已安全停转")
             return motor_test.one_actuator_info
     
-        sensor_reader = await self.get_sensor_reader(amp_ip)
+        try:
+            sensor_reader = await self.get_sensor_reader(amp_ip)
+        except Exception as e:
+            self.logger.error(f"❌ 无法获取放大器 {amp_ip} 的传感器读取器: {str(e)}")
+            return
+
         try:
             matched_ip = self.df[(self.df['Amplifier_ip'] == amp_ip) & (self.df['mirror_id'] == self.mirror_id)]
             if matched_ip.empty:

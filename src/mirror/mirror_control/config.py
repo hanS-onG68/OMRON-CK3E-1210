@@ -56,21 +56,23 @@ Actuator2Pon_Map = {
         2: outer2inner_Map["3a"], 4: outer2inner_Map["5a"], 6: outer2inner_Map["2a"], 8: outer2inner_Map["4a"], 10: outer2inner_Map["1a"], 12: outer2inner_Map["6b"], 14: outer2inner_Map["3b"], 16: outer2inner_Map["5b"], 18: outer2inner_Map["2b"], 20: outer2inner_Map["4b"], 22: outer2inner_Map["1b"], 24: outer2inner_Map["6a"]    # inner
     },
     3: {    # 3号边缘子镜：逻辑驱动器编号到物理位置编号的映射
-            0:  "7",  # 中心
-            1:  "2a",                 3:  "4a",                 5:  "1a",                 7:  "6b",                 9:  "3b",                  11:  "5b",                 13:  "2b",                 15:  "4b",                 17:  "1b",                 19: "6a",                  21: "3a",                  23: "5a",                    # outer
-            2: outer2inner_Map["2a"], 4: outer2inner_Map["4a"], 6: outer2inner_Map["1a"], 8: outer2inner_Map["6b"], 10: outer2inner_Map["3b"], 12: outer2inner_Map["5b"], 14: outer2inner_Map["2b"], 16: outer2inner_Map["4b"], 18: outer2inner_Map["1b"], 20: outer2inner_Map["6a"], 22: outer2inner_Map["3a"], 24: outer2inner_Map["5a"]    # inner
+        0:  "7",  # 中心
+        1:  "2a",                 3:  "4a",                 5:  "1a",                 7:  "6b",                 9:  "3b",                  11:  "5b",                 13:  "2b",                 15:  "4b",                 17:  "1b",                 19: "6a",                  21: "3a",                  23: "5a",                    # outer
+        2: outer2inner_Map["2a"], 4: outer2inner_Map["4a"], 6: outer2inner_Map["1a"], 8: outer2inner_Map["6b"], 10: outer2inner_Map["3b"], 12: outer2inner_Map["5b"], 14: outer2inner_Map["2b"], 16: outer2inner_Map["4b"], 18: outer2inner_Map["1b"], 20: outer2inner_Map["6a"], 22: outer2inner_Map["3a"], 24: outer2inner_Map["5a"]    # inner
     },
     4: {    # 4号边缘子镜：逻辑驱动器编号到物理位置编号的映射
-        0:  "7", 1:  "1a", 2:  "11", 3:  "6b", 4:  "16", 5:  "3b", 6:  "10", 7:  "5b", 8:  "15", 9:  "2b",
-        10: "9", 11: "4b", 12: "14", 13: "1b", 14: "8",  15: "6a", 16: "19", 17: "3a", 18: "13", 19: "5a", 20: "18", 21: "2a", 22: "12", 23: "4a", 24: "17"
+        0:  "7",  # 中心
+        1:  "1a",                 3:  "6b",                 5:  "3b",                 7:  "5b",                 9:  "2b",                  11:  "4b",                 13:  "1b",                 15:  "6a",                 17:  "3a",                 19: "5a",                  21: "2a",                  23: "4a",                    # outer
+        2: outer2inner_Map["1a"], 4: outer2inner_Map["6b"], 6: outer2inner_Map["3b"], 8: outer2inner_Map["5b"], 10: outer2inner_Map["2b"], 12: outer2inner_Map["4b"], 14: outer2inner_Map["1b"], 16: outer2inner_Map["6a"], 18: outer2inner_Map["3a"], 20: outer2inner_Map["5a"], 22: outer2inner_Map["2a"], 24: outer2inner_Map["4a"]    # inner
     },
     5: {    # 5号边缘子镜：逻辑驱动器编号到物理位置编号的映射
         0:  "7", 1:  "3b", 2:  "11", 3:  "5b", 4:  "16", 5:  "2b", 6:  "10", 7:  "4b", 8:  "15", 9:  "1b",
         10: "9", 11: "6a", 12: "14", 13: "3a", 14: "8",  15: "5a", 16: "19", 17: "2a", 18: "13", 19: "4a", 20: "18", 21: "1a", 22: "12", 23: "6b", 24: "17"
     },
     6: {    # 6号边缘子镜：逻辑驱动器编号到物理位置编号的映射
-        0:  "7", 1:  "2b", 2:  "11", 3:  "4b", 4:  "16", 5:  "1b", 6:  "10", 7:  "6a", 8:  "15", 9:  "3a",
-        10: "9", 11: "5a", 12: "14", 13: "2a", 14: "8",  15: "4a", 16: "19", 17: "1a", 18: "13", 19: "6b", 20: "18", 21: "3b", 22: "12", 23: "5b", 24: "17"
+        0:  "7",  # 中心
+        1:  "2b",                 3:  "4b",                 5:  "1b",                 7:  "6a",                 9:  "3a",                  11:  "5a",                 13:  "2a",                 15:  "4a",                 17:  "1a",                 19: "6b",                  21: "3b",                  23: "5b",                    # outer
+        2: outer2inner_Map["2b"], 4: outer2inner_Map["4b"], 6: outer2inner_Map["1b"], 8: outer2inner_Map["6a"], 10: outer2inner_Map["3a"], 12: outer2inner_Map["5a"], 14: outer2inner_Map["2a"], 16: outer2inner_Map["4a"], 18: outer2inner_Map["1a"], 20: outer2inner_Map["6b"], 22: outer2inner_Map["3b"], 24: outer2inner_Map["5b"]    # inner
     }
 }
 

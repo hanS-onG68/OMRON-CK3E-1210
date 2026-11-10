@@ -1,5 +1,4 @@
 """子镜闭环控制模块"""
-
 import asyncio, time, atexit
 from datetime import datetime
 from multiprocessing import Process, Event
@@ -17,10 +16,9 @@ from mirror.mirror_control.config import (
         MOTOR_STEPS_LIMIT, FORCE_100_UPPER, FORCE_100_LOWER, FORCE_200_UPPER, FORCE_200_LOWER, 
         FORCE_TIMEOUT,
 )
-# from mirror.mirror_control.controller import Controller
 from mirror.pmac_controller import PMAC_Controller, SSH_Config
 from mirror.mirror_control.sensor_collector import collector
-from mirror.mirror_control.utils import OCS_Logger
+from mirror.ocs_utils import get_ocs_logger
 from collections import deque
 
 
@@ -29,7 +27,7 @@ class MirrorsController:
     Target:Optional[np.ndarray] = None       # 力维持目标值，由上层提供(主动光学/查表)
     def __init__(self, debug=False, is_domestic:bool = True):
         self.debug = debug
-        self.logger = OCS_Logger(name="MIRRORS", debug=self.debug)
+        self.logger = get_ocs_logger(name="MIRRORS")
         self.is_domestic = is_domestic       # 区分是国产的放大器还是进口的放大器，True表示国产，False表示进口
         self._cmds_history = deque()  # 存储（timestamp，is_empty）
         self._cmds_window = 60.0      # 60秒的时间窗口
@@ -68,7 +66,7 @@ class MirrorsController:
         self.motors_status = np.full((MIRRORS_COUNT, ACTUATORS_PER_MIRROR), True, dtype=bool)  # 该位置电机是否正常: true表示正常，false表示异常(默认都正常)
         
         # 调试时选择：
-        self.Available[2, :] = True    # 选择几号边缘子镜
+        self.Available[5, :] = True    # 选择几号边缘子镜
 
 
         # 映射索引
@@ -95,13 +93,15 @@ class MirrorsController:
         self.change_va = self.Force - MirrorsController.Target  # 当前值和目标值的差值
 
     async def disable_all_motor(self):
-        enable_actuators = np.argwhere(self.motors_status)
-        for actuator_info in enable_actuators:
-            ctrl_id, actuator_id = actuator_info
-            motor_id = self._axis_idx[ctrl_id, actuator_id]
-            if ctrl_id in self.Controllers and self.Controllers[ctrl_id] and self.Controllers[ctrl_id].is_connected:
-                await self.Controllers[ctrl_id].exec_command(f"#{motor_id}k")  # 该位置电机去使能
-        self.logger.info(f"[资源清理阶段]所有电机完成去使能")
+        for ctrl_id in np.unique(self.controller_id[self.Available.ravel()]):
+            await self.Controllers[ctrl_id].exec_command("1...25k")  # 该子镜所有电机去使能
+        # enable_actuators = np.argwhere(self.motors_status)
+        # for actuator_info in enable_actuators:
+        #     ctrl_id, actuator_id = actuator_info
+        #     motor_id = self._axis_idx[ctrl_id, actuator_id]
+        #     if ctrl_id in self.Controllers and self.Controllers[ctrl_id] and self.Controllers[ctrl_id].is_connected:
+        #         await self.Controllers[ctrl_id].exec_command(f"#{motor_id}k")  # 该位置电机去使能
+        self.logger.info(f"[del resources] All motors disabled.")
         
     async def close(self):
         await self.disable_all_motor()  # 所有可用的电机去使能
@@ -144,6 +144,7 @@ class MirrorsController:
         self.Controllers = dict()
         for ctrl_id in np.unique(self.controller_id[self.Available.ravel()]):
             ctrl_ip = self.controller_ips[ctrl_id]
+            self.logger.info(f"Connecting to controller {ctrl_id} at {ctrl_ip}...")
             config = SSH_Config(ctrl_ip)
             controller = PMAC_Controller(config)
             asyncio.get_event_loop().create_task(controller.connect())
@@ -198,7 +199,7 @@ class MirrorsController:
                 # # 获取传感器最新数据
                 self.Force, self.Force_TS = self.get_force()
                 
-                 # 全矩阵运算，效率不高，但意思清晰。如果要追求效率，可以先用条件卡住矩阵
+                # 全矩阵运算，效率不高，但意思清晰。如果要追求效率，可以先用条件卡住矩阵
                 Error = MirrorsController.Target - self.Force
                 raw = Error * self.K_p
                  
@@ -211,15 +212,15 @@ class MirrorsController:
                  )
                 need_move_mask = valid_mask & (np.abs(Error) > self.Threshold)
                 
-                 # # 转换成各促动器电机补偿步数
+                # 转换成各促动器电机补偿步数
                 self.Steps = np.where(need_move_mask, np.clip(raw, -self.steps_limit, self.steps_limit), 0.0)
                     
                 cmds = self.build_motor_commands()  # 获取各个电机需要执行的命令
 
                 await self.check_motors_status(now_ts, cmds)  # 检查电机状态，记录历史命令
                 
-                if cmds:
-                    await self.execute_commands(cmds)  # 控制电机运行
+                # if cmds:
+                #     await self.execute_commands(cmds)  # 控制电机运行
                 with pd.option_context('display.max_rows', 6, 'display.max_columns', 25, 'display.precision', 2):
                     self.logger.info(f"Force:\n{pd.DataFrame(self.Force)}\n")
                     self.logger.info(f"ERROR:\n{pd.DataFrame(Error)}\n")
