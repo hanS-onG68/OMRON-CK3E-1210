@@ -12,7 +12,7 @@ build/
 dist/
 
 # 日志与数据
-
+*.log
 # 嵌套的 git 仓库 / 备份目录
 ocs/OCS_BAK/
 
