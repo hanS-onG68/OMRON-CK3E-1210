@@ -8,7 +8,7 @@ from mirror.amplifier.domestic_amplifier import Amplifier as DomesticAmplifier
 from mirror.amplifier.imported_amplifier import Amplifier as ImportedAmplifier
 from mirror.pmac_controller import PMAC_Controller, SSH_Config
 import csv
-from mirror.color_logger import setup_logger
+from mirror.logger import setup_logger
 import signal
 import aiofiles
 from dataclasses import dataclass
@@ -45,7 +45,7 @@ pmac_controler0 = PMAC_Controller(config0)
 
 
 Id2Controler = {
-    "192.168.0.200": pmac_controler0,
+    "192.168.0.200": pmac_controler0
     # "192.168.0.201": pmac_controler1,
     # "192.168.0.202": pmac_controler2,
     # "192.168.0.203": pmac_controler3,
@@ -94,7 +94,7 @@ class MirrorsTest:
     def get_domestic_amplifier_info(self):  # 国产放大器
         dev_info = []
         start_ip = "192.168.0."  # 起始ip
-        for id in range(111, 112, 1): # 全部需要19个放大器，测试时可根据需要收放
+        for id in range(103, 104, 1): # 全部需要19个放大器，测试时可根据需要收放
             current_ip = start_ip + str(id)
             dev_info.append(current_ip)
         return dev_info
@@ -102,11 +102,7 @@ class MirrorsTest:
     async def get_sensor_reader(self, amp_ip: str):
         if self.is_domestic:
             sensor_reader = DomesticAmplifier(amp_ip)      # 国产放大器
-            try:
-                await sensor_reader.connect()
-            except Exception as e:
-                self.logger.error(f"无法连接国产放大器 {amp_ip}: {str(e)}")
-                return None
+            await sensor_reader.connect()
             return sensor_reader
         sensor_reader = ImportedAmplifier(amp_ip, 3, 1.0)   # 进口放大器
         return sensor_reader
@@ -147,7 +143,7 @@ class MirrorsTest:
     async def one_amplifier_test(self, amp_ip):
         async def _wrap_motor_test(motor_test):    # 给单个电机任务包异常捕获，异常只影响自己
             try:
-                data_list = list(range(0, -240000, -5000))
+                data_list = list(range(0, -200000, -5000))
 
                 await motor_test.run_test(
                     data_list
@@ -156,12 +152,7 @@ class MirrorsTest:
                 self.logger.error(f"❌ 电机{motor_test.motor_id}测试失败: {str(e)}，已安全停转")
             return motor_test.one_actuator_info
     
-        try:
-            sensor_reader = await self.get_sensor_reader(amp_ip)
-        except Exception as e:
-            self.logger.error(f"❌ 无法获取放大器 {amp_ip} 的传感器读取器: {str(e)}")
-            return
-
+        sensor_reader = await self.get_sensor_reader(amp_ip)
         try:
             matched_ip = self.df[(self.df['Amplifier_ip'] == amp_ip) & (self.df['mirror_id'] == self.mirror_id)]
             if matched_ip.empty:
@@ -179,7 +170,7 @@ class MirrorsTest:
         try:
             tasks = []
             cmds = []
-            for chan_id in range(8, 9):   # 每个放大器有8个通道，测试每个通道对应的电机
+            for chan_id in range(6, 7):   # 每个放大器有8个通道，测试每个通道对应的电机
                 try:
                     matched_chan = matched_ip[matched_ip['Channel_id'] == chan_id]
                     if matched_chan.empty:
@@ -297,7 +288,7 @@ async def sensor_test(isDomestic:bool, isMergeCell:bool, mirrorId:int, isLineari
 
 if __name__ == "__main__":
     try:
-        asyncio.run(sensor_test(isDomestic=True, isMergeCell=True, mirrorId=4, isLinearityTest=True))
+        asyncio.run(sensor_test(isDomestic=True, isMergeCell=True, mirrorId=6, isLinearityTest=True))
     except Exception as e:
         print(f"程序出现异常，正在退出..., {e}")
 
