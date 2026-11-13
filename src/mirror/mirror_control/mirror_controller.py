@@ -66,7 +66,7 @@ class MirrorsController:
         self.motors_status = np.full((MIRRORS_COUNT, ACTUATORS_PER_MIRROR), True, dtype=bool)  # 该位置电机是否正常: true表示正常，false表示异常(默认都正常)
         
         # 调试时选择：
-        self.Available[5, :] = True    # 选择几号边缘子镜
+        self.Available[1, :] = True    # 选择几号边缘子镜
 
 
         # 映射索引
@@ -219,8 +219,8 @@ class MirrorsController:
 
                 await self.check_motors_status(now_ts, cmds)  # 检查电机状态，记录历史命令
                 
-                # if cmds:
-                #     await self.execute_commands(cmds)  # 控制电机运行
+                if cmds:
+                    await self.execute_commands(cmds)  # 控制电机运行
                 with pd.option_context('display.max_rows', 6, 'display.max_columns', 25, 'display.precision', 2):
                     self.logger.info(f"Force:\n{pd.DataFrame(self.Force)}\n")
                     self.logger.info(f"ERROR:\n{pd.DataFrame(Error)}\n")
