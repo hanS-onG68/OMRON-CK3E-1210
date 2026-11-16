@@ -95,12 +95,6 @@ class MirrorsController:
     async def disable_all_motor(self):
         for ctrl_id in np.unique(self.controller_id[self.Available.ravel()]):
             await self.Controllers[ctrl_id].exec_command("1...25k")  # 该子镜所有电机去使能
-        # enable_actuators = np.argwhere(self.motors_status)
-        # for actuator_info in enable_actuators:
-        #     ctrl_id, actuator_id = actuator_info
-        #     motor_id = self._axis_idx[ctrl_id, actuator_id]
-        #     if ctrl_id in self.Controllers and self.Controllers[ctrl_id] and self.Controllers[ctrl_id].is_connected:
-        #         await self.Controllers[ctrl_id].exec_command(f"#{motor_id}k")  # 该位置电机去使能
         self.logger.info(f"[del resources] All motors disabled.")
         
     async def close(self):
@@ -196,7 +190,7 @@ class MirrorsController:
                 # 每一个小时刷新一下motor的状态，避免长时间运行后出现异常
                 await self.reset_motor_status(now_ts)
 
-                # # 获取传感器最新数据
+                # 获取传感器最新数据
                 self.Force, self.Force_TS = self.get_force()
                 
                 # 全矩阵运算，效率不高，但意思清晰。如果要追求效率，可以先用条件卡住矩阵
@@ -204,12 +198,13 @@ class MirrorsController:
                 raw = Error * self.K_p
                  
                  # # 严格条件筛选
-                valid_mask = (self.Available & self.motors_status &
-                         ~np.isnan(self.Force) &
-                         (MirrorsController.Target>self.Force_limit_neg) &
-                         (MirrorsController.Target<self.Force_limit_pos) &
-                         (self.Force_TS - now_ts < self.Force_timeout)
-                 )
+                valid_mask = (
+                        self.Available & self.motors_status &
+                        ~np.isnan(self.Force) &
+                        (MirrorsController.Target > self.Force_limit_neg) & (MirrorsController.Target < self.Force_limit_pos) &
+                        (self.Force > self.Force_limit_neg) & (self.Force < self.Force_limit_pos) &
+                        (self.Force_TS - now_ts < self.Force_timeout)
+                )
                 need_move_mask = valid_mask & (np.abs(Error) > self.Threshold)
                 
                 # 转换成各促动器电机补偿步数

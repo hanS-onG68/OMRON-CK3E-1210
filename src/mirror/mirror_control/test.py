@@ -56,3 +56,11 @@ print(f"data2 = \n{data2}\ndata2.shape = {data2.shape}")
 
 data3 = np.any(data > 0, axis=1)
 print(f"data3 = \n{data3}\ndata3.shape = {data3.shape}")
+
+
+cols = np.arange(25).reshape(1, -1)
+multiplier = np.where((cols % 2 == 0) & (cols != 0), 100.0, 20.0)   # 内圈100(偶数列)，外圈20(奇数列)，第0列为20(奇数列)
+Force_limit_pos = np.ones((6, 25)) * multiplier         # 力值上限
+Force_limit_neg = -np.ones((6, 25))* multiplier         # 力值下限
+print(f"Force_limit_pos = {Force_limit_pos}, Force_limit_pos.shape = {Force_limit_pos.shape}")
+print(f"Force_limit_neg = {Force_limit_neg}, Force_limit_neg.shape = {Force_limit_neg.shape}")
