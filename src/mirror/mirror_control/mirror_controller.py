@@ -42,7 +42,7 @@ class MirrorsController:
         target_data = np.loadtxt(target_file, delimiter=',', dtype=str, skiprows=1, comments='#')
         initial_target_force = np.char.strip(target_data[:, 1]).astype(float)
         MirrorsController.Target = initial_target_force.reshape(MIRRORS_COUNT, ACTUATORS_PER_MIRROR)    # 物理位置的力维持目标值，由上层提供(主动光学/查表)
-        self.Force = np.zeros((MIRRORS_COUNT, ACTUATORS_PER_MIRROR))        # 力传感器数据
+        self.Force = np.full((MIRRORS_COUNT, ACTUATORS_PER_MIRROR), np.nan) # 力传感器数据
         self.Force_TS = np.zeros((MIRRORS_COUNT, ACTUATORS_PER_MIRROR))     # 力传感器时间戳
         self.Error = np.zeros((MIRRORS_COUNT, ACTUATORS_PER_MIRROR))        # 目标值与实际值之间的偏差
 
