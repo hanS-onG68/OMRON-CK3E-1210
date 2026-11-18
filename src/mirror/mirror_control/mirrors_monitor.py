@@ -53,8 +53,10 @@ class HexagonSensorVisualizer(QMainWindow):
         # 分子镜统计标签
         self.mirror_stats_labels = []
         self.mir_enabled = np.full(shape=self.mirror_count, fill_value=False)   # 用于存储每个边缘子镜的启用状态
-        self.mir_check = np.empty(shape=self.mirror_count, dtype=object)     # 用于存储每个边缘子镜的复选框
+        self.mir_check = np.empty(shape=self.mirror_count, dtype=object)        # 用于存储每个边缘子镜的复选框
         self.visible_mask = np.full(shape=(self.mirror_count, self.actuators_per_mirror), fill_value=False)   # 用于存储每个边缘子镜的可见性状态,默认都不可见
+        self.mir_loop_control_check = np.empty(shape=self.mirror_count, dtype=object)        # 用于存储每个边缘子镜的闭环控制复选框
+        self.mir_loop_control_enabled = np.full(shape=self.mirror_count, fill_value=False)   # 用于存储每个边缘子镜的闭环控制状态
     
 
         # 当前颜色映射
@@ -416,7 +418,6 @@ class HexagonSensorVisualizer(QMainWindow):
         threshold_layout.addWidget(self.threshold_label)
         filter_layout.addLayout(threshold_layout)
 
-        # 调测使用
         mir_sub_layout = QGridLayout()
         mir_sub_layout.addWidget(QLabel("要显示的子镜:"), 0, 0, 1, 3)
         for mir_idx in range(self.mirror_count):
@@ -424,6 +425,14 @@ class HexagonSensorVisualizer(QMainWindow):
             self.mir_check[mir_idx].stateChanged.connect(self.update_visualization)
             mir_sub_layout.addWidget(self.mir_check[mir_idx], mir_idx // 3 + 1, mir_idx % 3)
         filter_layout.addLayout(mir_sub_layout)
+
+        mir_loop_control_layout = QGridLayout()
+        mir_loop_control_layout.addWidget(QLabel("要闭环控制的子镜:"), 0, 0, 1, 3)
+        for mir_idx in range(self.mirror_count):
+            self.mir_loop_control_check[mir_idx] = QCheckBox(f"子镜{mir_idx+1}")
+            self.mir_loop_control_check[mir_idx].stateChanged.connect(self.update_visualization)
+            mir_loop_control_layout.addWidget(self.mir_loop_control_check[mir_idx], mir_idx // 3 + 1, mir_idx % 3)
+        filter_layout.addLayout(mir_loop_control_layout)
 
     
         filter_group.setLayout(filter_layout)
@@ -585,6 +594,8 @@ class HexagonSensorVisualizer(QMainWindow):
             if self.mir_check[mir_idx]:
                 self.mir_enabled[mir_idx] = self.mir_check[mir_idx].isChecked()
                 self.visible_mask[mir_idx] = self.mir_enabled[mir_idx]
+            if self.mir_loop_control_check[mir_idx]:
+                self.mir_loop_control_enabled[mir_idx] = self.mir_loop_control_check[mir_idx].isChecked() and self.mir_enabled[mir_idx]  # 仅当子镜被选中时，才允许该子镜的所有传感器参与闭环控制
 
     def initialize_scatter_textItem(self):
         """初始化传感器数值文本项"""
@@ -643,6 +654,7 @@ class HexagonSensorVisualizer(QMainWindow):
             self.sensor_data = self.mirror.Force
             self.motor_status = self.mirror.motors_status
             self.change_val = self.mirror.change_va
+            self.mirror.is_loop_control_enabled[:] = self.mir_loop_control_enabled[:, None]  # 仅当子镜被选中时，才允许该子镜的所有传感器参与闭环控制
             for (i, j), text_item in np.ndenumerate(self.current_text_items):
                 if not self.visible_mask[i, 0]:   # 子镜不可见
                     [item.setVisible(False) for item in self.current_text_items[i, :]]  # 隐藏该子镜的所有传感器文本项
@@ -894,7 +906,7 @@ class HexagonSensorVisualizer(QMainWindow):
             return
 
 
-def palette_set():
+def palette_set(app):
     palette = QPalette()
     palette.setColor(QPalette.Window, QColor(53, 53, 53))
     palette.setColor(QPalette.WindowText, Qt.white)
@@ -910,52 +922,101 @@ def palette_set():
     palette.setColor(QPalette.HighlightedText, Qt.white)
     app.setPalette(palette)
 
-if __name__ == "__main__":
-    try:
-        import os
-        os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"  #  告诉 Qt 启用自动缩放（必须在创建 QApplication 之前设置）
-        from qasync import QEventLoop, asyncSlot
-        # ★★★ 在创建 QApplication 之前设置 ★★★
-        QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
-        QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
-        app = QApplication(sys.argv)
-        app.setQuitOnLastWindowClosed(False)      #关键：关窗不自动停 loop
-        with QEventLoop(app) as loop:
-            asyncio.set_event_loop(loop)
-            palette_set()
-            window = HexagonSensorVisualizer()
-            window.show()
-            async def main():
-                close_future = asyncio.get_running_loop().create_future()
-                def on_sigint():
-                    if not close_future.done():
-                        close_future.set_result(None)
+def monitor():
+    import os
+    os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"  #  告诉 Qt 启用自动缩放（必须在创建 QApplication 之前设置）
+    from qasync import QEventLoop, asyncSlot
+    QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
+    QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
+    app = QApplication(sys.argv)
+    app.setQuitOnLastWindowClosed(False)      #关键：关窗不自动停 loop
+    with QEventLoop(app) as loop:
+        asyncio.set_event_loop(loop)
+        palette_set(app)
+        window = HexagonSensorVisualizer()
+        window.show()
+        async def main():
+            close_future = asyncio.get_running_loop().create_future()
+            def on_sigint():
+                if not close_future.done():
+                    close_future.set_result(None)
+            try:
+                loop.add_signal_handler(signal.SIGINT, on_sigint)
+            except (NotImplementedError, RuntimeError):
+                pass    # Windows 等平台不支持，退回到 KeyboardInterrupt
+            window.set_close_future(close_future)
+            monitor_task = asyncio.create_task(window.monitor_task())
+            try:
+                await close_future     # 关窗时唤醒
+            except Exception as e:
+                traceback.print_exc()  # 打印完整堆栈
+                print(f"出现异常, e = {str(e)}")
+            finally:
+                monitor_task.cancel()
+                await asyncio.gather(monitor_task, return_exceptions=True)
+                print(f"monitor_task is cancelled?: {monitor_task.cancelled()}")
                 try:
-                    loop.add_signal_handler(signal.SIGINT, on_sigint)
-                except (NotImplementedError, RuntimeError):
-                    pass    # Windows 等平台不支持，退回到 KeyboardInterrupt
-                window.set_close_future(close_future)
-                monitor_task = asyncio.create_task(window.monitor_task())
-                try:
-                    await close_future     # 关窗时唤醒
+                    await window.mirror.close()
                 except Exception as e:
                     traceback.print_exc()  # 打印完整堆栈
                     print(f"出现异常, e = {str(e)}")
-                finally:
-                    monitor_task.cancel()
-                    await asyncio.gather(monitor_task, return_exceptions=True)
-                    print(f"monitor_task is cancelled?: {monitor_task.cancelled()}")
-                    try:
-                        await window.mirror.close()
-                    except Exception as e:
-                        traceback.print_exc()  # 打印完整堆栈
-                        print(f"出现异常, e = {str(e)}")
-            try:
-                loop.run_until_complete(main())
-            except KeyboardInterrupt:
-                print(f"用户中断程序")
+        try:
+            loop.run_until_complete(main())
+        except KeyboardInterrupt:
+            print(f"用户中断程序")
+
+if __name__ == "__main__":
+    try:
+        monitor()
     except Exception:
         traceback.print_exc()
-    finally:
-        pass
+
+# if __name__ == "__main__":
+#     try:
+#         import os
+#         os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"  #  告诉 Qt 启用自动缩放（必须在创建 QApplication 之前设置）
+#         from qasync import QEventLoop, asyncSlot
+#         # ★★★ 在创建 QApplication 之前设置 ★★★
+#         QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
+#         QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
+#         app = QApplication(sys.argv)
+#         app.setQuitOnLastWindowClosed(False)      #关键：关窗不自动停 loop
+#         with QEventLoop(app) as loop:
+#             asyncio.set_event_loop(loop)
+#             palette_set()
+#             window = HexagonSensorVisualizer()
+#             window.show()
+#             async def main():
+#                 close_future = asyncio.get_running_loop().create_future()
+#                 def on_sigint():
+#                     if not close_future.done():
+#                         close_future.set_result(None)
+#                 try:
+#                     loop.add_signal_handler(signal.SIGINT, on_sigint)
+#                 except (NotImplementedError, RuntimeError):
+#                     pass    # Windows 等平台不支持，退回到 KeyboardInterrupt
+#                 window.set_close_future(close_future)
+#                 monitor_task = asyncio.create_task(window.monitor_task())
+#                 try:
+#                     await close_future     # 关窗时唤醒
+#                 except Exception as e:
+#                     traceback.print_exc()  # 打印完整堆栈
+#                     print(f"出现异常, e = {str(e)}")
+#                 finally:
+#                     monitor_task.cancel()
+#                     await asyncio.gather(monitor_task, return_exceptions=True)
+#                     print(f"monitor_task is cancelled?: {monitor_task.cancelled()}")
+#                     try:
+#                         await window.mirror.close()
+#                     except Exception as e:
+#                         traceback.print_exc()  # 打印完整堆栈
+#                         print(f"出现异常, e = {str(e)}")
+#             try:
+#                 loop.run_until_complete(main())
+#             except KeyboardInterrupt:
+#                 print(f"用户中断程序")
+#     except Exception:
+#         traceback.print_exc()
+#     finally:
+#         pass
         

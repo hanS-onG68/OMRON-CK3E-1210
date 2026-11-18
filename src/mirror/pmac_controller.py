@@ -19,7 +19,7 @@ class SSH_Config:
 
 class PMAC_Controller:
     SSH_CONN_TIMEOUT = 3.0 
-    GPA_RECV_TIMEOUT = 0.01
+    READ_TIMEOUT = 1.0
     SSH_LOGIN_PROMPT = ":/opt/ppmac# "
     GPA_SEP_PROMPT   = "\r\n"
     GPA_LOGIN_ACK    = "\x06\r\n"
@@ -36,8 +36,13 @@ class PMAC_Controller:
 
 
     def __init__(self, ssh_config: Optional[SSH_Config]):
-        self.conn =  self.writer = self.stdout = self.stderr = None
-        self._cmdLock = asyncio.Lock()                      # 命令串行化
+        self.conn =  None
+        self.writer = None
+        self.stdout = None
+        self.stderr = None
+
+        self._cmd_lock = asyncio.Lock()   # 命令串行化, 防并发connect互相等
+        self._conn_lock = asyncio.Lock()  # 连接建立串行化，防并发 connect 互相踢
         self.ssh_config = ssh_config
         self.logger = logging.getLogger("PMAC")
         self.logger.setLevel(logging.DEBUG)
@@ -54,49 +59,65 @@ class PMAC_Controller:
 
 
     async def disconnect(self) -> None:
-        if (self.writer is not None) and (not self.writer.is_closing()):
-            self.writer.close()
-            await self.writer.wait_closed()
-        if (self.conn is not None) and (not self.conn.is_closed()):
-            self.conn.close()
-            await self.conn.wait_closed()
-        self.conn =  self.writer = self.stdout = self.stderr = None
+        # 先 close 再置 None，若 close 抛异常则状态残留
+        # if (self.writer is not None) and (not self.writer.is_closing()):
+        #     self.writer.close()
+        #     await self.writer.wait_closed()
+        # if (self.conn is not None) and (not self.conn.is_closed()):
+        #     self.conn.close()
+        #     await self.conn.wait_closed()
+        # self.conn =  self.writer = self.stdout = self.stderr = None
+        writer, conn = self.writer, self.conn
+        self.conn = self.writer = self.stdout = self.stderr = None
+        if (writer is not None) and (not writer.is_closing()):
+            try:
+                writer.close()
+                await writer.wait_closed()
+            except Exception as e:
+                self.logger.debug(f"close writer failed {str(e)}", exc_info=True)
+        if (conn is not None) and (not conn.is_closed()):
+            try:
+                conn.close()
+                await conn.wait_closed()
+            except Exception as e:
+                self.logger.debug(f"close conn failed {str(e)}", exc_info=True)
 
 
     async def connect(self) -> bool:
-        await self.disconnect()
-        try:
-            self.logger.info(f"Connecting to PMAC ...")
-            # 1. 建立SSH连接
-            self.conn = await asyncssh.connect(
-                    **asdict(self.ssh_config),
-                    options=asyncssh.SSHClientConnectionOptions(known_hosts=None),  # known_hosts=None 表示不验证服务器的主机密钥
-            )
+        async with self._conn_lock:  # 防并发重连
+            if self.is_connected:
+                return True
+            await self.disconnect()
             try:
-                # 2. 启动GP-ASCII会话
-                self.writer, self.stdout, self.stderr = await self.conn.open_session(term_type="vt100")  # 用于在建立 SSH 连接后打开一个新的会话（session）。通过这个会话，你可以执行远程命令、启动子进程等
-                
-                # 3. 验证SSH登录
-                output = await asyncio.wait_for(self.stdout.readuntil(self.SSH_LOGIN_PROMPT), timeout=self.SSH_CONN_TIMEOUT)
-                
-                # 4. 启动gpascii模式
-                await self._write("gpascii -2 -f")
-                output = await asyncio.wait_for(self.stdout.readuntil(self.GPA_LOGIN_ACK), timeout=self.SSH_CONN_TIMEOUT)  # stdout.readuntil:允许从标准输出流中读取数据，直到遇到指定的分隔符为止
-                
-                # 5. 验证GP-ASCII会话
-                if self.GPA_LOGIN_PROMPT in output:
-                    self.logger.info("Connection to PMAC is OK")
-                    return True
-                self.logger.warning(f"GPA is FAILED: MISMATCH LOGIN PROMPT")
-                return False
-            except asyncio.TimeoutError:
-                self.logger.warning(f"GPA is FAILED: TIMEOUT (>{self.SSH_CONN_TIMEOUT})")
-                return False
+                self.logger.info(f"Connecting to PMAC {self.ssh_config.host}:{self.ssh_config.port} ...")
+                # 1. 建立SSH连接
+                self.conn = await asyncssh.connect(
+                        **asdict(self.ssh_config),
+                        options=asyncssh.SSHClientConnectionOptions(known_hosts=None),  # known_hosts=None 表示不验证服务器的主机密钥
+                )
+                try:
+                    # 2. 启动GP-ASCII会话
+                    self.writer, self.stdout, self.stderr = await self.conn.open_session(term_type="vt100")  # 用于在建立 SSH 连接后打开一个新的会话（session）。通过这个会话，你可以执行远程命令、启动子进程等
+                    
+                    # 3. 验证SSH登录
+                    output = await asyncio.wait_for(self.stdout.readuntil(self.SSH_LOGIN_PROMPT), timeout=self.SSH_CONN_TIMEOUT)
+                    
+                    # 4. 启动gpascii模式
+                    await self._write("gpascii -2 -f")
+                    output = await asyncio.wait_for(self.stdout.readuntil(self.GPA_LOGIN_ACK), timeout=self.SSH_CONN_TIMEOUT)  # stdout.readuntil:允许从标准输出流中读取数据，直到遇到指定的分隔符为止
+                    
+                    # 5. 验证GP-ASCII会话
+                    if self.GPA_LOGIN_PROMPT in output:
+                        self.logger.info("Connection to PMAC is OK")
+                        return True
+                    self.logger.warning(f"GPA is FAILED: MISMATCH LOGIN PROMPT")
+                except asyncio.TimeoutError:
+                    self.logger.warning(f"GPA is FAILED: TIMEOUT (>{self.SSH_CONN_TIMEOUT})")
+                except Exception as err:
+                    self.logger.warning(f"PMAC connect failed: {err!r}")
             except Exception as err:
-                self.logger.warning(f"GPA is FAILED: {err!r}")
-                return False
-        except Exception as err:
-            self.logger.warning(f"SSH connected FAILED: {err!r}")
+                self.logger.warning(f"SSH connected FAILED: {err!r}")
+            await self.disconnect()
             return False
 
 
@@ -108,21 +129,36 @@ class PMAC_Controller:
 
     async def _read(self) -> list[str]:
         """收结果--底层函数"""
-        res = await self.stdout.readuntil(PMAC_Controller.GPA_ACK_PROMPT)
+        res = await asyncio.wait_for(
+                self.stdout.readuntil(PMAC_Controller.GPA_ACK_PROMPT), timeout=self.READ_TIMEOUT
+        )
         return [item for item in res.replace(PMAC_Controller.GPA_ACK_PROMPT, "").split(self.GPA_SEP_PROMPT) if item]
 
-    async def exec_command(self, cmd:str) -> tuple[bool, list[float]]:
+    async def exec_command(self, cmd:str):
         """发明令收结果--还保证串行化，防止同一链路上多命令返回乱套了"""
-        if not self.is_connected:
-            await self.connect()
-        async with self._cmdLock:
+        if not await self.connect():
+            self.logger.warning(f"EXEC {cmd} FAILED: PMAC is not connected")
+            await self.disconnect()
+            return (False, [])
+        async with self._cmd_lock:
             try:
                 await self._write(cmd)
                 res = await self._read()
                 return (True, res) if cmd in res else (False, res)
+            except asyncio.CancelledError:  # 命令可能写了一半就被取消，连接状态不可信，主动作废
+                self.logger.warning(f"EXEC {cmd} FAILED: CANCELLED")
+                try:
+                    await asyncio.shield(self.disconnect())
+                except Exception as e:
+                    self.logger.debug("disconnect during cancel failed: %r", e)
+                raise
+            except asyncio.TimeoutError:
+                self.logger.warning(f"EXEC {cmd} FAILED: TIMEOUT (>{self.READ_TIMEOUT})")
+                await self.disconnect()
+                return (False, [])
             except Exception as err:
                 self.logger.warning(f"EXEC {cmd} FAILED: {err!r}")
-            return (False, [])
+                return (False, [])
 
     def get_variable_name(self, var_type: str, axis: int = 1) -> str:
         """根据变量类型和轴号生成实际的PMAC命令"""

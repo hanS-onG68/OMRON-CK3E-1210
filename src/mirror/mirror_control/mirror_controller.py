@@ -61,12 +61,15 @@ class MirrorsController:
         self.Steps = np.zeros_like(MirrorsController.Target)
         self.steps_limit = MOTOR_STEPS_LIMIT
 
-        self.Available = np.full((MIRRORS_COUNT, ACTUATORS_PER_MIRROR), False, dtype=bool)  # 该位置是否可用
+        self.Available = np.full((MIRRORS_COUNT, ACTUATORS_PER_MIRROR), True, dtype=bool)  # 该位置是否可用
 
         self.motors_status = np.full((MIRRORS_COUNT, ACTUATORS_PER_MIRROR), True, dtype=bool)  # 该位置电机是否正常: true表示正常，false表示异常(默认都正常)
+
+        self.is_loop_control_enabled = np.full((MIRRORS_COUNT, ACTUATORS_PER_MIRROR), False, dtype=bool)  # 用于存储每个边缘子镜是否参与闭环控制，True表示参与闭环控制，False表示不参与闭环控制
         
         # 调试时选择：
-        self.Available[1, :] = True    # 选择几号边缘子镜
+        self.Available[3, :] = False    # 选择几号边缘子镜
+        self.Available[4, :] = False  
 
 
         # 映射索引
@@ -94,8 +97,8 @@ class MirrorsController:
 
     async def disable_all_motor(self):
         for ctrl_id in np.unique(self.controller_id[self.Available.ravel()]):
-            await self.Controllers[ctrl_id].exec_command("1...25k")  # 该子镜所有电机去使能
-        self.logger.info(f"[del resources] All motors disabled.")
+            res, _ = await self.Controllers[ctrl_id].exec_command("1...25k")  # 该子镜的所有电机去使能
+            self.logger.info(f"[del resources] mirror_{ctrl_id} motors disabled {f'successed' if res else 'failed'}")
         
     async def close(self):
         await self.disable_all_motor()  # 所有可用的电机去使能
@@ -105,7 +108,7 @@ class MirrorsController:
             worker.join(timeout=2.0)    # 回收采集子进程
         self.Amplifiers.clear()
         tasks = [ctrl.disconnect() for ctrl in self.Controllers.values()]
-        await asyncio.gather(*tasks)
+        await asyncio.gather(*tasks, return_exceptions=True)  # 回收控制器连接
         self.Controllers.clear()
 
         if hasattr(self, '_buffer'):    # 回收共享内存引用
@@ -162,8 +165,7 @@ class MirrorsController:
             worker.start()
             self.Amplifiers[amp_id] = worker
             self.logger.info(f"Amplifiers[{amp_id}] is CONNECTED to {amp_info}")
-    
-    
+       
     @staticmethod
     def _load_hardware_config(filepath):
         data = np.loadtxt(filepath, delimiter=',', dtype=str, skiprows=1, comments='#')
@@ -172,7 +174,6 @@ class MirrorsController:
         dev_data = np.zeros(dev_id.max() + 1, dtype='<U15')
         dev_data[dev_id.astype(int)] = dev_ip
         return dev_data.tolist()
-
 
     def get_force(self):
         """获取最新力传感器数据和时间戳 -- 花式索引, 一次拷贝, 1.17us"""
@@ -199,11 +200,12 @@ class MirrorsController:
                  
                  # # 严格条件筛选
                 valid_mask = (
-                        self.Available & self.motors_status &
+                        self.Available & self.is_loop_control_enabled &
+                        self.motors_status &
                         ~np.isnan(self.Force) &
                         (MirrorsController.Target > self.Force_limit_neg) & (MirrorsController.Target < self.Force_limit_pos) &
                         (self.Force > self.Force_limit_neg) & (self.Force < self.Force_limit_pos) &
-                        (self.Force_TS - now_ts < self.Force_timeout)
+                        (now_ts - self.Force_TS < self.Force_timeout)  # 当前时刻 - 数据时刻 = 数据年龄
                 )
                 need_move_mask = valid_mask & (np.abs(Error) > self.Threshold)
                 
@@ -215,7 +217,8 @@ class MirrorsController:
                 await self.check_motors_status(now_ts, cmds)  # 检查电机状态，记录历史命令
                 
                 if cmds:
-                    await self.execute_commands(cmds)  # 控制电机运行
+                    res = await self.execute_commands(cmds)  # 控制电机运行
+                    self.logger.info(f"execute_commands result: {res}")
                 with pd.option_context('display.max_rows', 6, 'display.max_columns', 25, 'display.precision', 2):
                     self.logger.info(f"Force:\n{pd.DataFrame(self.Force)}\n")
                     self.logger.info(f"ERROR:\n{pd.DataFrame(Error)}\n")
@@ -237,14 +240,45 @@ class MirrorsController:
             commands[ctrl_id] = cmd
         return commands
 
-    async def execute_commands(self, commands):
+    async def execute_commands(self, commands, timeout:float=15.0) -> dict[int, bool]:
+        async def _run(ctrl_id: int, cmd: str) -> tuple[int, bool, list[str], str | None]:
+            try:
+                ok, raw = await self.Controllers[int(ctrl_id)].exec_command(cmd)
+                return int(ctrl_id), ok, raw, None
+            except asyncio.CancelledError:
+                raise                                  # 取消必须传播，不吞
+            except Exception as err:                   # 兜底，防止 gather 被单个异常炸掉
+                self.logger.warning("ctrl %s exec %r raised: %r", ctrl_id, cmd, err)
+                return int(ctrl_id), False, [], repr(err)
         if not commands:
-            return
-        tasks = []
-        for ctrl_id, cmd in commands.items():
-            tasks.append(asyncio.create_task(self.Controllers[ctrl_id].exec_command(cmd)))
-        await asyncio.wait_for(asyncio.gather(*tasks), timeout=15)
+            return {}
+        tasks = [asyncio.create_task(_run(cid, cmd)) for cid, cmd in commands.items()]
+        try:
+            results = await asyncio.wait_for(
+                asyncio.gather(*tasks, return_exceptions=False),  # _run 内部已兜底，这里不会抛
+                timeout=timeout,
+            )
+        except asyncio.TimeoutError:
+            self.logger.error(  # wait_for 已取消 gather 及其内部 task；这里只需报告
+                "execute_commands timeout after %.1fs, ctrls=%s", timeout, list(commands),
+            )
+            # 显式确保任务收尾（wait_for 已 cancel，这里等它们真正结束，避免 "Task was destroyed but pending" 警告）
+            for t in tasks:
+                t.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            return {int(cid): False for cid in commands}
 
+        out: dict[int, bool] = {}  # 子镜：命令结果
+        failed: list[int] = []
+        for cid, ok, raw, err in results:
+            out[cid] = ok
+            if not ok:
+                failed.append(cid)
+                self.logger.warning("mirror_%s exec failed, raw=%r, err=%s", cid, raw, err)
+        if failed:
+            self.logger.warning("execute_commands partial failure: %s", failed)
+        return out
+            
     async def check_motors_status(self, now_ts, cmds):
         self._cmds_history.append((now_ts, cmds, self.Steps.copy()))     # 记录当前时间戳和是否有命令
 
@@ -265,9 +299,9 @@ class MirrorsController:
             for ctrl_id, actuator_id in nonzero_positions:
                 motor_id = self._axis_idx[ctrl_id, actuator_id]
                 self.logger.error(f"❌️检测到过去{self._cmds_window}秒内, 位置(子镜{ctrl_id}-促动器{actuator_id}-电机{motor_id})一直有非零步数, 可能电机异常!")
-                if self.Controllers[ctrl_id] and self.Controllers[ctrl_id].is_connected:
-                    await self.Controllers[ctrl_id].exec_command(f"#{motor_id}k")  # 该位置电机去使能
-                self.motors_status[ctrl_id, actuator_id] = False                   # 标记该位置电机异常
+                if self.Controllers[int(ctrl_id)] and self.Controllers[int(ctrl_id)].is_connected:
+                    await self.Controllers[int(ctrl_id)].exec_command(f"#{motor_id}k")  # 该位置电机去使能
+                self.motors_status[int(ctrl_id), actuator_id] = False                   # 标记该位置电机异常
 
     async def reset_motor_status(self, now_ts):
         if not self._motors_status_history:

@@ -64,3 +64,12 @@ Force_limit_pos = np.ones((6, 25)) * multiplier         # 力值上限
 Force_limit_neg = -np.ones((6, 25))* multiplier         # 力值下限
 print(f"Force_limit_pos = {Force_limit_pos}, Force_limit_pos.shape = {Force_limit_pos.shape}")
 print(f"Force_limit_neg = {Force_limit_neg}, Force_limit_neg.shape = {Force_limit_neg.shape}")
+
+res = 1
+print(f"[del resources] All motors disabled {f'successed' if res else 'failed'}")
+
+
+mir_loop_control_enabled = np.full(shape=6, fill_value=False) 
+Available = np.full((6, 25), True, dtype=bool)
+Available[:,] = mir_loop_control_enabled[:, None]
+print(f"self.Available = {Available}, self.Available.shape = {Available.shape}")
