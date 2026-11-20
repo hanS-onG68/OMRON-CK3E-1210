@@ -85,7 +85,6 @@ class Amplifier:  # 国产放大器
                 self.logger.error(f"读取失败: {response}")
                 return None
 
-            # self.logger.info(f"response = {response}, response.registers: {response.registers}, len = {len(response.registers)}")
             try:
                 results = {}
                 for index in range(0, len(response.registers), 2):
@@ -122,7 +121,6 @@ class Amplifier:  # 国产放大器
             values.append(val["channel_8"])
             timestamp = datetime.now()
             result = (self.host, timestamp, values)
-            # self.logger.info(f"host:{self.host}, fetch data: {result}")
             return result
         else:
             self.logger.error("获取测量值失败, 返回None")

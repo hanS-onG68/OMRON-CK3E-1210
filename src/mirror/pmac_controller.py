@@ -4,9 +4,7 @@ import asyncio, asyncssh, logging
 from dataclasses import dataclass, asdict
 from typing import Optional
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logging.getLogger("asyncssh").setLevel(logging.WARNING)
-
+from mirror.ocs_utils import get_ocs_logger
 
 @dataclass() # frozen=True：不可修改
 class SSH_Config:
@@ -44,8 +42,7 @@ class PMAC_Controller:
         self._cmd_lock = asyncio.Lock()   # 命令串行化, 防并发connect互相等
         self._conn_lock = asyncio.Lock()  # 连接建立串行化，防并发 connect 互相踢
         self.ssh_config = ssh_config
-        self.logger = logging.getLogger("PMAC")
-        self.logger.setLevel(logging.DEBUG)
+        self.logger = get_ocs_logger("PMAC_Controller")
         self.logger.info(f"PMAC_Controller is starting up ...")
 
 
@@ -59,14 +56,6 @@ class PMAC_Controller:
 
 
     async def disconnect(self) -> None:
-        # 先 close 再置 None，若 close 抛异常则状态残留
-        # if (self.writer is not None) and (not self.writer.is_closing()):
-        #     self.writer.close()
-        #     await self.writer.wait_closed()
-        # if (self.conn is not None) and (not self.conn.is_closed()):
-        #     self.conn.close()
-        #     await self.conn.wait_closed()
-        # self.conn =  self.writer = self.stdout = self.stderr = None
         writer, conn = self.writer, self.conn
         self.conn = self.writer = self.stdout = self.stderr = None
         if (writer is not None) and (not writer.is_closing()):
@@ -108,7 +97,7 @@ class PMAC_Controller:
                     
                     # 5. 验证GP-ASCII会话
                     if self.GPA_LOGIN_PROMPT in output:
-                        self.logger.info("Connection to PMAC is OK")
+                        self.logger.info(f"Connection to PMAC {self.ssh_config.host}:{self.ssh_config.port}  is OK")
                         return True
                     self.logger.warning(f"GPA is FAILED: MISMATCH LOGIN PROMPT")
                 except asyncio.TimeoutError:

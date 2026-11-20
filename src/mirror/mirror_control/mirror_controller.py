@@ -67,9 +67,8 @@ class MirrorsController:
 
         self.is_loop_control_enabled = np.full((MIRRORS_COUNT, ACTUATORS_PER_MIRROR), False, dtype=bool)  # 用于存储每个边缘子镜是否参与闭环控制，True表示参与闭环控制，False表示不参与闭环控制
         
-        # 调试时选择：
-        self.Available[3, :] = False    # 选择几号边缘子镜
-        self.Available[4, :] = False  
+        # 调试时选择:
+        # self.Available[3, :] = False   # 屏蔽几号边缘子镜: PMAC未接电时，可临时规避
 
 
         # 映射索引
@@ -83,7 +82,7 @@ class MirrorsController:
         # 共享内存
         self.shm = self._create_shm()
         self._buffer = np.ndarray((CAPACITY_SENSORS*2,), dtype=np.float64, buffer=self.shm.buf)
-        self._buffer.fill(0.0)                              # 初始化共享内存数据区，避免初始全0导致的误动
+        self._buffer.fill(np.nan)                           # 初始化共享内存数据区，避免初始全0导致的误动
         self._data =  self._buffer[:CAPACITY_SENSORS]       # 传感器数据视图，零拷贝
         self._timestamp = self._buffer[CAPACITY_SENSORS:]   # 传感器时间戳视图，零拷贝
 
@@ -97,7 +96,7 @@ class MirrorsController:
 
     async def disable_all_motor(self):
         for ctrl_id in np.unique(self.controller_id[self.Available.ravel()]):
-            res, _ = await self.Controllers[ctrl_id].exec_command("1...25k")  # 该子镜的所有电机去使能
+            res, _ = await self.Controllers[ctrl_id].exec_command("#1..25k")  # 该子镜的所有电机去使能
             self.logger.info(f"[del resources] mirror_{ctrl_id} motors disabled {f'successed' if res else 'failed'}")
         
     async def close(self):
@@ -185,7 +184,7 @@ class MirrorsController:
     async def run(self):
         try:
             while True:
-                await asyncio.sleep(5.0)  # 每5秒钟执行一次闭环控制
+                await asyncio.sleep(3.0)  # 每5秒钟执行一次闭环控制
                 now_ts = time.time()
 
                 # 每一个小时刷新一下motor的状态，避免长时间运行后出现异常
@@ -200,45 +199,54 @@ class MirrorsController:
                  
                  # # 严格条件筛选
                 valid_mask = (
-                        self.Available & self.is_loop_control_enabled &
+                        self.Available &
+                        self.is_loop_control_enabled &
                         self.motors_status &
                         ~np.isnan(self.Force) &
                         (MirrorsController.Target > self.Force_limit_neg) & (MirrorsController.Target < self.Force_limit_pos) &
                         (self.Force > self.Force_limit_neg) & (self.Force < self.Force_limit_pos) &
-                        (now_ts - self.Force_TS < self.Force_timeout)  # 当前时刻 - 数据时刻 = 数据年龄
+                        (time.time() - self.Force_TS < self.Force_timeout)  # 当前时刻 - 数据时刻 = 数据年龄
                 )
                 need_move_mask = valid_mask & (np.abs(Error) > self.Threshold)
                 
                 # 转换成各促动器电机补偿步数
                 self.Steps = np.where(need_move_mask, np.clip(raw, -self.steps_limit, self.steps_limit), 0.0)
                     
-                cmds = self.build_motor_commands()  # 获取各个电机需要执行的命令
+                exec_cmds, enable_cmds = self.build_motor_commands()  # 获取各个电机需要执行的命令
 
-                await self.check_motors_status(now_ts, cmds)  # 检查电机状态，记录历史命令
+                await self.check_motors_status(now_ts, exec_cmds)  # 检查电机状态，记录历史命令
                 
-                if cmds:
-                    res = await self.execute_commands(cmds)  # 控制电机运行
+                if exec_cmds:
+                    res = await self.execute_commands(enable_cmds)  # 使能电机
+                    self.logger.info(f"enable_commands result: {res}")
+                    res = await self.execute_commands(exec_cmds)    # 控制电机运行
                     self.logger.info(f"execute_commands result: {res}")
+                
                 with pd.option_context('display.max_rows', 6, 'display.max_columns', 25, 'display.precision', 2):
                     self.logger.info(f"Force:\n{pd.DataFrame(self.Force)}\n")
                     self.logger.info(f"ERROR:\n{pd.DataFrame(Error)}\n")
                     self.logger.info(f"raw_Steps:\n{pd.DataFrame(raw)}\n")
                     self.logger.info(f"Steps:\n{pd.DataFrame(self.Steps)}\n")
-                    self.logger.info(f"CMDS:\n{cmds}\n")
+                    self.logger.info(f"EXEC_CMDS:\n{exec_cmds}\n")
+                    self.logger.info(f"ENABLE_CMDS:\n{enable_cmds}\n")
         except KeyboardInterrupt:
             pass
 
     def build_motor_commands(self):
-        commands = dict()
+        exec_cmds = dict()
+        enable_cmds = dict()
         for ctrl_id in range(MIRRORS_COUNT):
             non_pos = np.nonzero(self.Steps[ctrl_id])[0]  # 返回当前子镜中step不为0的索引 
             axes = self._axis_idx[ctrl_id][non_pos]
             if len(axes) == 0:
                 continue
-            parts = [f"#{axis_id:02d}J:{int(self.Steps[ctrl_id, non_pos[ind]])}" for ind, axis_id in enumerate(axes)]
-            cmd = " ".join(parts)  # 一个子镜需要动的促动器的命令的集合
-            commands[ctrl_id] = cmd
-        return commands
+            exec_cmd_parts = [f"#{axis_id:02d}J:{int(self.Steps[ctrl_id, non_pos[ind]])}" for ind, axis_id in enumerate(axes)]
+            enable_cmd_parts = [f"#{axis_id:02d}J/" for ind, axis_id in enumerate(axes)]
+            exec_cmd = " ".join(exec_cmd_parts)      # 一个子镜需要使能的促动器的命令的集合
+            enable_cmd = " ".join(enable_cmd_parts)  # 一个子镜需要动的促动器的命令的集合
+            exec_cmds[ctrl_id] = exec_cmd
+            enable_cmds[ctrl_id] = enable_cmd
+        return exec_cmds, enable_cmds
 
     async def execute_commands(self, commands, timeout:float=15.0) -> dict[int, bool]:
         async def _run(ctrl_id: int, cmd: str) -> tuple[int, bool, list[str], str | None]:

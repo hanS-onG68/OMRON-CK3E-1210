@@ -656,6 +656,9 @@ class HexagonSensorVisualizer(QMainWindow):
             self.change_val = self.mirror.change_va
             self.mirror.is_loop_control_enabled[:] = self.mir_loop_control_enabled[:, None]  # 仅当子镜被选中时，才允许该子镜的所有传感器参与闭环控制
             for (i, j), text_item in np.ndenumerate(self.current_text_items):
+                if j%25 ==0 and not self.mir_loop_control_check[i].isChecked():
+                    if self.mirror.Controllers[i].is_connected:
+                        await self.mirror.Controllers[i].exec_command("#1..25k")
                 if not self.visible_mask[i, 0]:   # 子镜不可见
                     [item.setVisible(False) for item in self.current_text_items[i, :]]  # 隐藏该子镜的所有传感器文本项
                     [item.setVisible(False) for item in self.current_change_val_text_items[i, :]]  # 隐藏该子镜的所有传感器文本项
@@ -681,7 +684,6 @@ class HexagonSensorVisualizer(QMainWindow):
                 motor_status_point = self.scatter_plot_motor_status.points()[i * self.actuators_per_mirror + j]
                 motor_color = QColor(0, 255, 0) if self.motor_status[i,j]  else QColor(255, 0, 0) # 红色(255,0,0): 故障， 绿色：正常
                 motor_status_point.setBrush(motor_color)
-                # motor_status_point.setData(offset=(18, 0))
                 
                 visible = not (self.filter_enabled and value < self.threshold)
                 point.setVisible(visible)  # visible 为 True 时，该数据点会在界面上正常显示
@@ -690,7 +692,7 @@ class HexagonSensorVisualizer(QMainWindow):
                 motor_status_point.setVisible(visible)
             self.scatter_plot.update()
             self.scatter_plot_motor_status.update()
-            await asyncio.sleep(0.1)  # 0.2秒更新一次
+            await asyncio.sleep(0.2)  # 0.2秒更新一次
     
     def update_global_statistics(self):
         """更新全局统计数据"""
@@ -970,53 +972,3 @@ if __name__ == "__main__":
         monitor()
     except Exception:
         traceback.print_exc()
-
-# if __name__ == "__main__":
-#     try:
-#         import os
-#         os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"  #  告诉 Qt 启用自动缩放（必须在创建 QApplication 之前设置）
-#         from qasync import QEventLoop, asyncSlot
-#         # ★★★ 在创建 QApplication 之前设置 ★★★
-#         QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
-#         QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
-#         app = QApplication(sys.argv)
-#         app.setQuitOnLastWindowClosed(False)      #关键：关窗不自动停 loop
-#         with QEventLoop(app) as loop:
-#             asyncio.set_event_loop(loop)
-#             palette_set()
-#             window = HexagonSensorVisualizer()
-#             window.show()
-#             async def main():
-#                 close_future = asyncio.get_running_loop().create_future()
-#                 def on_sigint():
-#                     if not close_future.done():
-#                         close_future.set_result(None)
-#                 try:
-#                     loop.add_signal_handler(signal.SIGINT, on_sigint)
-#                 except (NotImplementedError, RuntimeError):
-#                     pass    # Windows 等平台不支持，退回到 KeyboardInterrupt
-#                 window.set_close_future(close_future)
-#                 monitor_task = asyncio.create_task(window.monitor_task())
-#                 try:
-#                     await close_future     # 关窗时唤醒
-#                 except Exception as e:
-#                     traceback.print_exc()  # 打印完整堆栈
-#                     print(f"出现异常, e = {str(e)}")
-#                 finally:
-#                     monitor_task.cancel()
-#                     await asyncio.gather(monitor_task, return_exceptions=True)
-#                     print(f"monitor_task is cancelled?: {monitor_task.cancelled()}")
-#                     try:
-#                         await window.mirror.close()
-#                     except Exception as e:
-#                         traceback.print_exc()  # 打印完整堆栈
-#                         print(f"出现异常, e = {str(e)}")
-#             try:
-#                 loop.run_until_complete(main())
-#             except KeyboardInterrupt:
-#                 print(f"用户中断程序")
-#     except Exception:
-#         traceback.print_exc()
-#     finally:
-#         pass
-        
